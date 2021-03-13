@@ -216,7 +216,7 @@ class Info:
 
             if fourier:
                 coefficients = self.extract_fourier_coefficients()
-                contour_data = self.extract_information_from_contour()
+                contour_data = self.extract_lengths_from_contour()
                 properties = {**properties, **contour_data}
                 self.contour_controlplot()
                 dict_of_coefficients = {**dict_of_coefficients, **coefficients}
@@ -225,11 +225,9 @@ class Info:
                 hsv, int = self.extract_color_props()
                 properties = {**properties, **hsv, **int}
 
-            if graycomatrix:
-                gray = self.extract_greycomatrix()
-                properties = {**properties, **gray}
-
-
+            #if graycomatrix:
+            #    gray = self.extract_greycomatrix()
+            #    properties = {**properties, **gray}
 
             ### convert to dataframe
             props_df = pd.DataFrame(properties)
@@ -361,7 +359,7 @@ class Info:
         regions = measure.regionprops(self.buds_label)
         coefficients = dict()
 
-        self.control_img_old_contour, self.control_img_final_contour = list(), list()
+        self.control_img_old_contour, self.contour_list = list(), list()
 
         for r in regions:
             n = self.f.split('/')[1].split('.')[0] + f'-{r.label}'
@@ -438,17 +436,17 @@ class Info:
             coefficients[n] = new_coef
 
             self.control_img_old_contour.append(contour)
-            self.control_img_final_contour.append(final_contour)
+            self.contour_list.append(final_contour)
 
         return coefficients
 
-    def extract_information_from_contour(self, plotting=False):
+    def extract_lengths_from_contour(self, plotting=False):
         img = self.f.split('/')[1].split('.')[0]
         img_mask = self.add_info.iloc[:, 0] == img
 
         maj_len, min_len, min_pos, min_len05, ratio_contour = list(), list(), list(), list(), list()
 
-        for contour in self.control_img_final_contour:
+        for contour in self.contour_list:
             ############## Major axis
             major_len_i = np.round(np.max(contour[:,1]), 4)
             maj_len.append(major_len_i)
@@ -457,12 +455,12 @@ class Info:
             minor_len_i = np.round(np.max(contour[:,0]), 4)
             min_len.append(minor_len_i)
 
-            ############## Where is the maximal minor axis?
-            min_x_pos = np.where(contour[:,0]== 0.0)[0]
-            max_x_pos = np.where(contour[:, 0] == np.max(contour[:,0]))[0]
-            rel_dist = (contour[min_x_pos, 1] + contour[max_x_pos, 1]) / 2 / np.max(contour[:,1])
+            ############## Where is the minor axis?
+            min_x_pos = np.where(contour[:,0]== 0.0)[0][0]
+            max_x_pos = np.where(contour[:, 0] == np.max(contour[:,0]))[0][0]
+            rel_dist = contour[min_x_pos, 1] / np.max(contour[:,1])
 
-            location_of_minor_axis = np.round(rel_dist[0], 2)
+            location_of_minor_axis = np.round(rel_dist, 2)
             min_pos.append(location_of_minor_axis)
 
             ############## Minor axis at 0.5 of major axis
@@ -501,13 +499,14 @@ class Info:
                 plt.plot(contour[:, 0], contour[:, 1], '-k')
 
                 # major axis
-                plt.plot([top[0], bottom[0]],
-                         [top[1], bottom[1]], '-o',
+                plt.plot([contour[0, 0], contour[0, 0]],
+                         [0, contour[0, 1]], '-o',
                          color='red', label='major axis')
 
-                # maximal minor_axis
-                plt.plot([left[0], right[0]],
-                         [left[1], right[1]], '-o',
+
+                # minor_axis
+                plt.plot([0, np.max(contour[:,0])],
+                         [contour[min_x_pos, 1], contour[min_x_pos, 1]], '-o',
                          color='green', label='minor axis')
 
                 # minor_axis at 0.5 of length of major axis
@@ -515,17 +514,12 @@ class Info:
                          [left_05[1], right_05[1]], '-o',
                          color='blue', label='minor axis 05')
 
-                # min and max x
-                plt.plot([contour[min_x_pos,0], contour[max_x_pos,0]],
-                         [contour[min_x_pos, 1], contour[max_x_pos,1]], 'X',
-                         color='orange', markersize=10, label='min and max x')
-
                 plt.gca().set_aspect('equal', adjustable='box')
-                plt.ylabel('y-coordinates', size=12)
-                plt.xlabel('x-coordinates', size=12)
+                plt.ylabel('height cm', size=12)
+                plt.xlabel('width cm', size=12)
                 plt.tight_layout()
                 # plt.legend()
-                plt.savefig('control_img/contour_axes_length.pdf')
+                plt.savefig('graphics/control.pdf')
 
         contour_data = dict(maj_len=maj_len, min_len=min_len,
                             min_pos=min_pos, min_len05=min_len05,
@@ -567,7 +561,7 @@ class Info:
     def contour_controlplot(self):
         plt.figure(figsize=(18, 9))
         for i, (old_contour, final_contour) in enumerate(zip(self.control_img_old_contour,
-                                                             self.control_img_final_contour)):
+                                                             self.contour_list)):
             plt.subplot(2, int((len(self.control_img_old_contour) + 1) / 2), i + 1)
             plt.plot(final_contour[:, 0], final_contour[:, 1], 'o', markersize=1)
             plt.plot(old_contour[:, 0], old_contour[:, 1], 'o', markersize=1)
@@ -580,9 +574,11 @@ class Info:
 
 
 class Analyse:
-    def __init__(self, set):
+    def __init__(self, set, random_seed, load_coefficients=False):
         self.set = set
-        self.coef = self.load_coefficients()
+        self.seed = random_seed
+        if load_coefficients:
+            self.coef = self.load_coefficients()
         self.data = pd.read_csv('data/data.csv', header=0)
         self.x_train, self.x_test, self.y_train, self.y_test = self.data_prep()
 
@@ -624,7 +620,7 @@ class Analyse:
         scaler = preprocessing.StandardScaler().fit(x)
         x = scaler.transform(x)
         y = self.data.name
-        x_train, x_test, y_train, y_test = model_selection.train_test_split(x, y, test_size=0.3)
+        x_train, x_test, y_train, y_test = model_selection.train_test_split(x, y, test_size=0.3, random_state=self.seed)
         return x_train, x_test, y_train, y_test
 
 
@@ -645,6 +641,7 @@ class Analyse:
 
         plt.savefig('graphics/area_length.pdf')
         plt.close()
+
 
     def export_legend(self, expand=[-5, -5, 5, 5]):
         grouped_data = self.data.groupby(self.data.name)
@@ -667,95 +664,6 @@ class Analyse:
         bbox = bbox.transformed(fig.dpi_scale_trans.inverted())
         fig.savefig('graphics/legend.pdf', dpi="figure",  bbox_inches=bbox)
 
-    def spider_plot(self):
-        species = np.unique(self.data.name)
-        categories = self.data.iloc[:, 1:-3].columns
-        mean_values = self.data.iloc[:, 1:-2].groupby('name').mean().values
-
-        N = len(categories)
-
-        # What will be the angle of each axis in the plot? (we divide the plot / number of variable)
-        angles = [n / float(N) * 2 * np.pi for n in range(N)]
-        angles += angles[:1]
-
-        # Initialise the spider plot
-        #plt.figure(figsize=(9,5))
-        ax = plt.subplot(111, polar=True)
-        ax.set_theta_offset(np.pi / 2)
-        ax.set_theta_direction(-1)
-
-        plt.xticks(angles[:-1], categories)
-        ax.set_rlabel_position(0)
-        plt.yticks([0, 0.2, 0.4, 0.6, 0.8,  1], ["0", "0.2","0.4", "0.6", "0.8", "1"], color="grey", size=7)
-        plt.ylim(0, 1)
-
-        for i in range(N):
-            mean_values[:, i] /= np.max(mean_values[:, i])
-
-        for i in range(len(mean_values)):
-            values = mean_values[i,:]
-            values = np.append(values, values[:1])
-            plt.plot(angles, values, linewidth=1.5, linestyle='solid', label=species[i])
-
-        plt.legend(loc='center', bbox_to_anchor=(1.4, 0.5))
-        plt.savefig("graphics/spider_plot.svg", bbox_inches="tight")
-        plt.show()
-
-
-    def make_boxplot(self):
-        data = self.data
-        cols = list(data.iloc[:, 1:-3])
-
-        code = pd.Categorical(data.name).codes
-        data_splitted = [data[cols].values[code == l] for l in np.unique(code)]
-        f, p = scipy.stats.f_oneway(*data_splitted)
-        print(f'Anova p = {p}')
-
-
-
-        splitted = [data[cols[0]].values[code == l] for l in np.unique(code)]
-        scipy.stats.kruskal(*splitted)
-
-        res = scikit_posthocs.posthoc_mannwhitney(data, val_col=cols[0], group_col='name', p_adjust = 'holm')
-
-        x_label = [la.split()[0][0] + la.split()[1][0] for la in np.unique(data.name)]
-
-        res.columns, res.index = x_label, x_label
-        cmap = ['1', '#fb6a4a', '#08306b', '#4292c6', '#c6dbef']
-        heatmap_args = {'cmap': cmap, 'linewidths': 0.25, 'linecolor': '0.5', 'clip_on': False, 'square': True, 'cbar_ax_bbox': [0.80, 0.35, 0.04, 0.3]}
-        scikit_posthocs.sign_plot(res, **heatmap_args)
-        plt.savefig('test.svg')
-
-
-        area_splitted = [data.area.values[code == l] for l in np.unique(code)]
-        f, p = scipy.stats.kruskal(*area_splitted)
-        print(f'Kruskal p = {p}')
-
-        fig, axs = plt.subplots(1, len(cols),  figsize=(18, 5), sharey=False)
-
-        prop_dic = {'patch_artist': True,
-                    'boxprops': dict(color='k', facecolor='tab:blue'),
-                    'capprops': dict(color='k'),
-                    'flierprops': dict(color='k', markeredgecolor='k', markerfacecolor='k', markersize=3),
-                    'medianprops': dict(color='k'),
-                    'whiskerprops': dict(color='k')}
-
-        data.boxplot(column=cols, by='name', ax=axs, **prop_dic)
-        fig.suptitle('')
-
-        [ax_tmp.set_xticklabels(x_label) for ax_tmp in axs.reshape(-1)]
-        [ax_tmp.set_xlabel('Species') for ax_tmp in axs.reshape(-1)]
-
-        plt.savefig('graphics/boxplot.svg')
-        plt.show()
-
-    def loading_plot(self, coeff, labels):
-        n = coeff.shape[0]
-        for i in range(n):
-            plt.arrow(0, 0, coeff[i, 0]*25, coeff[i, 1]*25, head_width=0.1, head_length=0.1,
-                      linewidth=3, color='#21918C', alpha=0.7)
-            #plt.text(coeff[i, 0] * 27, coeff[i, 1] * 27, labels[i], color='#21918C', ha='center', va='center')
-
 
     def pca(self):
         # remove name colums
@@ -768,9 +676,6 @@ class Analyse:
         output = pd.DataFrame(X[:, 0:3])
         output = pd.concat([output, self.data.name], axis=1)
 
-        loadings_13 = pd.DataFrame(pca.components_.T[:, [0,2]], index=self.data.iloc[:,1:-3].columns)
-        mask_loadings_13 = np.sum(loadings_13 > 0.25, axis=1) > 0
-
         variance_explained = pca.explained_variance_ratio_
         species = list(np.unique(self.data.name))
         count_categories = self.data.groupby('name').count().iloc[:, 0].values
@@ -780,9 +685,12 @@ class Analyse:
 
         for i_subplot, axes_subplot in enumerate(axes):
             plt.subplot(1,2, i_subplot+1)
-            loadings = pd.DataFrame(pca.components_.T[:, axes_subplot], index=self.data.iloc[:, 1:-3].columns)
-            mask_loadings = np.sum(loadings >= 0.25, axis=1) > 0
-            self.loading_plot(loadings[mask_loadings].values, loadings[mask_loadings].index)
+
+            l = pca.components_.T * np.sqrt(pca.explained_variance_)
+
+            loadings = pd.DataFrame(l[:, axes_subplot], index=self.data.iloc[:, 1:-3].columns)
+            mask_loadings = np.sum(abs(loadings) >= 0.8, axis=1) > 0
+            self.pca_loadings(loadings[mask_loadings].values, loadings[mask_loadings].index)
 
             for i, i_species in enumerate(species):
                 indices = output['name'] == i_species
@@ -802,6 +710,14 @@ class Analyse:
         plt.show()
         plt.close()
 
+    def pca_loadings(self, coeff, labels):
+        n = coeff.shape[0]
+        for i in range(n):
+            plt.arrow(0, 0, coeff[i, 0]*10, coeff[i, 1]*10, head_width=0.1, head_length=0.1,
+                      linewidth=3, color='#21918C', alpha=0.7)
+            #plt.text(coeff[i, 0]*12, coeff[i, 1]*12, labels[i], color='#21918C', ha='center', va='center')
+
+
     def pca_fourier(self):
         textsize = 12
 
@@ -812,18 +728,13 @@ class Analyse:
 
         color = [np.where(np.unique(self.data.name) == self.data.name[i])[0][0] for i in range(len(self.data.name))]
 
-        plt.figure(figsize=(12,7))
+        plt.figure(figsize=(8,5))
 
         for i in range(len(self.data)):
             plt.plot(X[i, 0], X[i,1], 'o', markersize=2, color=cm.tab10(color[i]))
 
-        #plt.title(f'PCA of EFA data', size=textsize*1.2)
         plt.xlabel(f'PC1 ({np.round(variance_explained[0] * 100, 2)} %)', size=textsize)
         plt.ylabel(f'PC2 ({np.round(variance_explained[1] * 100, 2)} %)', size=textsize)
-        #plt.legend(self.h, self.l, markerscale=3, prop={'size': 12},
-        #           bbox_to_anchor=(1.4, 0.5), loc='center right')
-
-
 
         ## Plot contours of buds
         x_center = np.min(X[:, 0]) + (np.max(X[:, 0]) - np.min(X[:, 0])) / 2
@@ -880,42 +791,49 @@ class Analyse:
         plt.tight_layout()
         plt.savefig('graphics/pca_efa.pdf', bbox_inches="tight")
         plt.show()
+        plt.close()
 
 
     def contour_plot(self):
-        spe = [n[0] + n.split(' ')[1][0] for n in np.unique(self.data.name)]
+        spe = [n.split(' ')[0] + ' ' + n.split(' ')[1][0] + '.' for n in np.unique(self.data.name)]
         species_no = [np.where(np.unique(self.data.name) == self.data.name[i])[0][0] for i in range(len(self.data.name))]
 
-        fig = plt.figure(figsize=(18,4))
-        gs = fig.add_gridspec(1,8, wspace=0)
+        fig = plt.figure(figsize=(13,3.5))
+        gs = fig.add_gridspec(1,8, wspace=0.05)
         axs = gs.subplots(sharex=True, sharey=True)
         fig.patch.set_visible(False)
 
-        for ax in axs:
-             ax.label_outer()
-             #ax.axis('off')
-
-        for i in np.arange(8):
+        for i, ax in enumerate(axs):
             mask = np.array(species_no) == i
             selected_coef = self.coef[mask, :]
             mean_coef = np.mean(selected_coef, axis=0)
 
-            selected_coef.shape
             contour = pyefd.reconstruct_contour(mean_coef.reshape((50,4)), num_points=200)
 
             min_y = np.min(contour[:,1])
             contour[:, 1] -=  min_y
+            min_x = np.min(contour[:, 0])
+            contour[:, 0] -= min_x
 
-            axs[i].fill(contour[:, 0], contour[:, 1], color=cm.tab10(i), alpha=0.4)
-            axs[i].plot(contour[:,0], contour[:,1], color=cm.tab10(i))
-            axs[i].text(0,50, spe[i], color=cm.tab10(i), size=14, ha='center', va='center')
-            axs[i].set_aspect('equal', adjustable='box')
+            ax.label_outer()
+            ax.set_xticks([0,0.3,0.6])
+            ax.set_xticklabels(['0', '0.3','0.6'])
+            ax.fill(contour[:, 0], contour[:, 1], color=cm.tab10(i), alpha=0.4)
+            ax.plot(contour[:,0], contour[:,1], color=cm.tab10(i))
+            ax.text(0.4, 1.7, spe[i], color=cm.tab10(i), size=12, ha='center', va='center')
+            ax.set_aspect('equal', adjustable='box')
             if i != 0:
-                axs[i].spines['left'].set_visible(False)
-            axs[i].spines['right'].set_visible(False)
-            axs[i].spines['top'].set_visible(False)
+                ax.spines['left'].set_visible(False)
+            else:
+                ax.set_ylabel('height cm')
+            ax.set_xlabel('width cm')
+            ax.spines['right'].set_visible(False)
+            ax.spines['top'].set_visible(False)
 
-    plt.tight_layout()
+
+        plt.tight_layout()
+        plt.savefig('graphics/contour.pdf', bbox_inches="tight")
+        plt.show()
 
 
 
@@ -923,37 +841,39 @@ class Analyse:
     def logistic_regression(self):
         logreg = linear_model.LogisticRegression(max_iter=200)
         logreg.fit(self.x_train, self.y_train)
-        z = logreg.predict(self.x_train)
-        fit = z == self.y_train
-        print(f'Logistic Regression - Train data fit: '
-              f'{np.sum(fit)}, out of: {len(fit)} ({np.round(100*np.sum(fit)/len(fit),2)} %)')
 
-        z = logreg.predict(self.x_test)
-        fit = z == self.y_test
-        print(f'Logistic Regression - Test data fit: '
-              f'{np.sum(fit)}, out of: {len(fit)} ({np.round(100 * np.sum(fit) / len(fit), 2)} %)')
+        train_score = logreg.score(self.x_train, self.y_train)
+        test_score = logreg.score(self.x_test, self.y_test)
+
+        #print(f'Logistic regression - Train score: {np.round(100 * train_score, 2)} %')
+        #print(f'Logistic regression - Test score: {np.round(100 * test_score, 2)} %')
+
+        return train_score, test_score
+
 
 
     def random_forest(self):
-        clf = ensemble.RandomForestClassifier(n_estimators=15)
+        clf = ensemble.RandomForestClassifier(n_estimators=5)
         clf.fit(self.x_train, self.y_train)
 
-        # train data
-        z = clf.predict(self.x_train)
-        fit = z == self.y_train
-        print(f'Random Forest - Train data fit: {np.sum(fit)} out of {len(fit)} ({np.round(100 * np.sum(fit) / len(fit), 2)} %)')
+        train_score = clf.score(self.x_train, self.y_train)
+        test_score = clf.score(self.x_test, self.y_test)
 
-        # test data
-        z = clf.predict(self.x_test)
-        fit = z == self.y_test
-        print(f'Random Forest - Test data fit: {np.sum(fit)} out of {len(fit)} ({np.round(100 * np.sum(fit) / len(fit), 2)} %)')
+        #print(f'Random forest - Train score: {np.round(100 * train_score, 2)} %')
+        #print(f'Random forest - Test score: {np.round(100 * test_score, 2)} %')
+
+        return train_score, test_score
 
     def decision_tree(self, plotting=False):
-        tree1 = tree.DecisionTreeClassifier(max_depth=10)
+        tree1 = tree.DecisionTreeClassifier(max_depth=8)
 
         tree1.fit(self.x_train, self.y_train)
-        print(f'Decision tree - Train score: {np.round(100*tree1.score(self.x_train, self.y_train),2)} %')
-        print(f'Decision tree - Test score: {np.round(100*tree1.score(self.x_test, self.y_test),2)} %')
+
+        train_score = tree1.score(self.x_train, self.y_train)
+        test_score = tree1.score(self.x_test, self.y_test)
+
+        #print(f'Decision tree - Train score: {np.round(100*train_score,2)} %')
+        #print(f'Decision tree - Test score: {np.round(100*test_score,2)} %')
 
         if plotting:
             plt.figure(figsize=(40,30))
@@ -964,73 +884,65 @@ class Analyse:
             plt.savefig('graphics/descision_tree.png')
             plt.close()
 
-            n = x_train.shape[1]
-            plt.barh(range(n), tree1.feature_importances_, align='center')
+            n = self.x_train.shape[1]
+
+            for i, spine in enumerate(plt.gca().spines.values()):
+                if i == 1 or i == 3:
+                    spine.set_visible(False)
+
+            plt.barh(range(n), tree1.feature_importances_, align='center', color='#21918C', alpha=0.7)
             plt.yticks(np.arange(n), self.data.iloc[:, 1:-3].columns)
-            plt.xlabel('Importance of feature')
-            plt.ylabel('feature')
+            plt.xlabel('Importance of feature', size=12)
+            plt.ylabel('feature', size=12)
             plt.tight_layout()
-            plt.savefig('graphics/coefs_decision_tree.svg')
+            plt.savefig('graphics/coefs_decision_tree.pdf')
+            #plt.show()
+            plt.close()
 
-
-    def test(self):
-        plt.plot(a.data.ratio, a.data.ratio_contour, 'o', markersize=1)
-
-        plt.plot(a.data.major_axis_length, a.data.min_pos, 'o', markersize=1.5)
-
-        a.data.columns
-        np.unique(a.data.name)
-
-        plt.plot(a.data['major_axis_length'], a.data['maj_len'], 'o', markersize=1)
-        plt.plot(a.data['minor_axis_length'], a.data['min_len'], 'o', markersize=1)
-        plt.plot(a.data['minor_axis_length'], a.data['min_len05'], 'o', markersize=1)
-        plt.plot([0, 3], [0, 3], '--')
-        plt.xlabel('ellipse')
-        plt.gca().set_aspect('equal', adjustable='box')
-        plt.show()
-        # plt.boxplot(a.data['min_pos'])
-
-        a.data.groupby('name')['maj_len'].describe()
+        return train_score, test_score
 
 
 if __name__ == '__main__':
-    #e = Extract()
-    #e.image_extraction(control_images=True, extract_again=True)
+    e = Extract()
+    e.image_extraction(control_images=True, extract_again=True)
     i = Info()
     i.collect_information()
 
+    ana = Analyse(3, 213, True)
+    ana.pca()
+    ana.pca_fourier()
+    ana.contour_plot()
+    ana.area_length_plot()
 
 
-    a = Analyse(3)
-    a.contour_plot()
-    a.pca()
-    #a.export_legend()
-    a.area_length_plot()
-
-    a.pca_fourier()
-    a.logistic_regression()
-    a.random_forest()
-    a.decision_tree()
-
+    ############### Simulations of prediction
+    no = np.random.randint(100000, size=200)
+    log, dec, ran = list(), list(), list()
+    for i in range(10):
+        print(i)
+        a = Analyse(3, no[i])
+        log.append(a.logistic_regression())
+        dec.append(a.decision_tree())
+        ran.append(a.random_forest())
 
 
-    a.data
+    # logistic regression
+    np.mean(np.array(log)[:,0])
+    np.std(np.array(log)[:, 0])
+    np.mean(np.array(log)[:, 1])
+    np.std(np.array(log)[:, 1])
 
-    a.data.boxplot('min_pos', by='name')
+    # decistion tree
+    np.mean(np.array(dec)[:, 0])
+    np.std(np.array(dec)[:, 0])
+    np.mean(np.array(dec)[:, 1])
+    np.std(np.array(dec)[:, 1])
 
-    plt.boxplot(a.data.min_pos)
-
-
-    cols = list(a.data.iloc[:, 1:-3])
-
-
-    data_splitted = [a.data[cols].values[code == l] for l in np.unique(code)]
-    f, p = scipy.stats.f_oneway(*data_splitted)
-    print(f'Anova p = {p}')
-
-    cols[0]
-    cols[3]
-
+    # random forest
+    np.mean(np.array(ran)[:, 0])
+    np.std(np.array(ran)[:, 0])
+    np.mean(np.array(ran)[:, 1])
+    np.std(np.array(ran)[:, 1])
 
 
 
@@ -1056,3 +968,9 @@ if __name__ == '__main__':
     plt.title('area')
     scikit_posthocs.sign_plot(ph)
     plt.tight_layout()
+
+
+    # Correlation between length from ellipse and lengths from shape
+    scipy.stats.spearmanr(a.data.major_axis_length, a.data.maj_len)
+    scipy.stats.spearmanr(a.data.minor_axis_length, a.data.min_len)
+    scipy.stats.spearmanr(a.data.ratio, a.data.ratio_contour)
